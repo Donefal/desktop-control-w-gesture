@@ -1,8 +1,75 @@
+import math
+
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+# -----------------------------------------------------------------------------------
+# Fungsi-fungsi pendeteksi jari
+# -----------------------------------------------------------------------------------
+
+# Melihat knodisi masing-masing jari, apakah extended atau tidak
+def get_finger_extended(hand_landmarks):
+    lm = hand_landmarks
+    fingers = []
+
+    # Four fingers: tip.y < knuckle.y means extended
+    for tip, knuckle in [(8,5), (12,9), (16,13), (20,17)]:
+        fingers.append(lm[tip].y < lm[knuckle].y)
+
+    # Thumb: compare x axis instead
+    thumb_extended = lm[4].x > lm[3].x  # flip if mirrored
+    fingers.insert(0, thumb_extended)
+
+    return fingers  # [thumb, index, middle, ring, pinky]
+
+# Menghitung berapa jari yang extended
+def count_fingers(fingers):
+    return sum(fingers)
+
+# Menghitung jarak antara 2 landmark
+def landmark_distance(lm, id1, id2):
+    dx = lm[id1].x - lm[id2].x
+    dy = lm[id1].y - lm[id2].y
+    return math.sqrt(dx**2 + dy**2)  # normalized, so ~0.05 is a pinch
+
+# -----------------------------------------------------------------------------------
+# Mode-mode an
+# -----------------------------------------------------------------------------------
+def get_mode(left_landmarks):
+    if left_landmarks is None:
+        return "IDLE"
+    fingers = get_finger_extended(left_landmarks)
+    count = count_fingers(fingers)
+    if count == 4:
+        return "MOUSE"
+    elif count == 3:
+        return "KEY"
+    elif count == 2:
+        return "PRESENTATION"
+    elif count == 5:
+        return "STT"
+    return "IDLE"
+
+def handle_action(mode, right_landmarks):
+    if right_landmarks is None or mode == "IDLE":
+        return
+    fingers = get_finger_extended(right_landmarks)
+    count = count_fingers(fingers)
+
+    if mode == "MOUSE":
+        pass  # move mouse, click, scroll logic here
+    elif mode == "KEY":
+        pass  # keyboard shortcuts here
+    elif mode == "PRESENTATION":
+        pass  # slide navigation here
+
+# -----------------------------------------------------------------------------------
+# Drawing
+# -----------------------------------------------------------------------------------
+
+# Untuk menggambar Landmark (garis hijau & bintik merah)
 def draw_landmarks(frame, hand_landmarks):
     h, w, _ = frame.shape
         
@@ -26,7 +93,10 @@ def draw_landmarks(frame, hand_landmarks):
         cv2.circle(frame, (px, py), 5, (0, 0, 255), -1)  # red dot
 
 
-# SETUP
+# -----------------------------------------------------------------------------------
+# Setup
+# -----------------------------------------------------------------------------------
+
 latest_result = None
 
 def process_result(result, output_image, timestamp_ms):
@@ -45,7 +115,10 @@ recognizer = vision.GestureRecognizer.create_from_options(options)
 cap = cv2.VideoCapture(0)
 timestamp = 0
 
-# MAIN LOOP
+# -----------------------------------------------------------------------------------
+# Main function
+# -----------------------------------------------------------------------------------
+
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -61,13 +134,34 @@ while cap.isOpened():
     recognizer.recognize_async(mp_image, timestamp)
 
     if latest_result:
-        for i, hand_gestures in enumerate(latest_result.gestures):
-            gesture = hand_gestures[0]
-            handedness = latest_result.handedness[i][0].display_name
-            label = f"{handedness}: {gesture.category_name} ({gesture.score:.2f})"
-            cv2.putText(frame, label, (10, 40 + i * 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            draw_landmarks(frame, latest_result.hand_landmarks[i])  # add this
+        left_landmarks = None
+        right_landmarks = None
 
+        current_result = latest_result
+        if current_result and len(current_result.gestures) == len(current_result.handedness):
+            for i, hand_gestures in enumerate(latest_result.gestures):
+                handedness = latest_result.handedness[i][0].display_name
+                lm = latest_result.hand_landmarks[i]
+
+                # Flip the handedness label to match the mirrored frame
+                handedness = "Right" if handedness == "Left" else "Left"
+
+                if handedness == "Left":
+                    left_landmarks = lm
+                else:
+                    right_landmarks = lm
+
+                draw_landmarks(frame, lm)  # add this
+
+                gesture = hand_gestures[0]
+                label = f"{handedness}: {gesture.category_name} ({gesture.score:.2f})"
+                cv2.putText(frame, label, (10, 40 + i * 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+                mode = get_mode(left_landmarks)
+                handle_action(mode, right_landmarks)
+                cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
+    cv2.flip(frame, 1)
     cv2.imshow("Gesture Recognition", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
