@@ -34,6 +34,10 @@ def landmark_distance(lm, id1, id2):
     dy = lm[id1].y - lm[id2].y
     return math.sqrt(dx**2 + dy**2)  # normalized, so ~0.05 is a pinch
 
+def get_finger_position(lm):
+    pass
+    
+
 # -----------------------------------------------------------------------------------
 # Mode-mode an
 # -----------------------------------------------------------------------------------
