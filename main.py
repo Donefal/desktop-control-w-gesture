@@ -1,15 +1,21 @@
 import math
 
 import cv2
+import pyautogui
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+
+from control import move_mouse_from_index
+
+
+PINCH_THRESHOLD = 0.05
 
 # -----------------------------------------------------------------------------------
 # Fungsi-fungsi pendeteksi jari
 # -----------------------------------------------------------------------------------
 
-# Melihat knodisi masing-masing jari, apakah extended atau tidak
+# Melihat knodisi masing-masing jari pada satu tangan, apakah extended atau tidak
 def get_finger_extended(hand_landmarks):
     lm = hand_landmarks
     fingers = []
@@ -25,7 +31,9 @@ def get_finger_extended(hand_landmarks):
     return fingers  # [thumb, index, middle, ring, pinky]
 
 # Menghitung berapa jari yang extended
+# EXCEPTION: thumb
 def count_fingers(fingers):
+    fingers = fingers[1:]
     return sum(fingers)
 
 # Menghitung jarak antara 2 landmark
@@ -34,40 +42,84 @@ def landmark_distance(lm, id1, id2):
     dy = lm[id1].y - lm[id2].y
     return math.sqrt(dx**2 + dy**2)  # normalized, so ~0.05 is a pinch
 
-def get_finger_position(lm):
-    pass
-    
+def is_pointing(left_landmarks):
+    fingers = get_finger_extended(left_landmarks)
+    # Only index finger up, rest folded
+    return fingers == [False, True, False, False, False]
 
+
+# Return jari yang pinching
+def get_pinch(hand_landmarks):
+    thumb_tip = hand_landmarks[4]
+    
+    fingers = {
+        "index":  hand_landmarks[8],
+        "middle": hand_landmarks[12],
+        "ring":   hand_landmarks[16],
+        "pinky":  hand_landmarks[20],
+    }
+    
+    for finger_name, finger_tip in fingers.items():
+        dx = thumb_tip.x - finger_tip.x
+        dy = thumb_tip.y - finger_tip.y
+        dist = (dx**2 + dy**2) ** 0.5
+        
+        if dist < PINCH_THRESHOLD:
+            return finger_name  # "index", "middle", "ring", or "pinky"
+    
+    return None  # no pinch detected
+    
 # -----------------------------------------------------------------------------------
 # Mode-mode an
 # -----------------------------------------------------------------------------------
-def get_mode(left_landmarks):
+def get_mode_from_left(left_landmarks):
     if left_landmarks is None:
         return "IDLE"
     fingers = get_finger_extended(left_landmarks)
     count = count_fingers(fingers)
-    if count == 4:
+
+    if count == 1:
         return "MOUSE"
-    elif count == 3:
-        return "KEY"
     elif count == 2:
+        return "KEY"
+    elif count == 3:
         return "PRESENTATION"
-    elif count == 5:
+    elif count == 4:
         return "STT"
     return "IDLE"
 
-def handle_action(mode, right_landmarks):
-    if right_landmarks is None or mode == "IDLE":
+# Handle aksi 
+def handle_mouse_action():
+    global prev_pinch
+    pinch_finger = get_pinch(right_landmarks)
+
+    if(pinch_finger == "index"):
+        pyautogui.click();
+    elif(pinch_finger == "middle"):
+        pass
+    
+    prev_pinch = pinch_finger
+
+
+def handle_action(mode, right_landmarks, left_landmarks, frame_shape):
+    if mode == "IDLE":
         return
-    fingers = get_finger_extended(right_landmarks)
+
+    fingers = get_finger_extended(left_landmarks)
     count = count_fingers(fingers)
 
     if mode == "MOUSE":
-        pass  # move mouse, click, scroll logic here
+        if(is_pointing(left_landmarks)):
+            move_mouse_from_index(left_landmarks, frame_shape)
+        elif(right_landmarks is not None):
+            handle_mouse_action()
     elif mode == "KEY":
         pass  # keyboard shortcuts here
     elif mode == "PRESENTATION":
         pass  # slide navigation here
+    elif mode == "STT":
+        pass  # slide navigation here
+    
 
 # -----------------------------------------------------------------------------------
 # Drawing
@@ -86,6 +138,7 @@ def draw_landmarks(frame, hand_landmarks):
         (0,17),(17,18),(18,19),(19,20),  # pinky
         (5,9),(9,13),(13,17)             # palm
     ]
+
     for start, end in connections:
         x1, y1 = int(hand_landmarks[start].x * w), int(hand_landmarks[start].y * h)
         x2, y2 = int(hand_landmarks[end].x * w), int(hand_landmarks[end].y * h)
@@ -102,6 +155,7 @@ def draw_landmarks(frame, hand_landmarks):
 # -----------------------------------------------------------------------------------
 
 latest_result = None
+prev_pinch = None
 
 def process_result(result, output_image, timestamp_ms):
     global latest_result
@@ -159,11 +213,10 @@ while cap.isOpened():
 
                 gesture = hand_gestures[0]
                 label = f"{handedness}: {gesture.category_name} ({gesture.score:.2f})"
-                cv2.putText(frame, label, (10, 40 + i * 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-                mode = get_mode(left_landmarks)
-                handle_action(mode, right_landmarks)
-                cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+            mode = get_mode_from_left(left_landmarks)
+            handle_action(mode, right_landmarks, left_landmarks, frame.shape)
+            cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
 
     cv2.flip(frame, 1)
     cv2.imshow("Gesture Recognition", frame)
