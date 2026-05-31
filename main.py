@@ -5,11 +5,28 @@ import pyautogui
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from enum import StrEnum, auto
 
 from control import move_mouse_from_index
 
-
+# -----------------------------------------------------------------------------------
+# Constant & Enum
+# -----------------------------------------------------------------------------------
 PINCH_THRESHOLD = 0.05
+
+class MODE(StrEnum):
+    NAVIGATION = auto()
+    KEY = auto()
+    PRESENTATION = auto()
+    STT = auto()
+    IDLE = auto()
+
+class FINGERS(StrEnum):
+    THUMB = auto()
+    INDEX = auto()
+    MIDDLE = auto()
+    RING = auto()
+    PINKY = auto()
 
 # -----------------------------------------------------------------------------------
 # Fungsi-fungsi pendeteksi jari
@@ -47,16 +64,19 @@ def is_pointing(left_landmarks):
     # Only index finger up, rest folded
     return fingers == [False, True, False, False, False]
 
-
-# Return jari yang pinching
 def get_pinch(hand_landmarks):
+    """
+    Return jari yang pinching
+
+    Return satu value dari enum FINGERS
+    """
     thumb_tip = hand_landmarks[4]
     
     fingers = {
-        "index":  hand_landmarks[8],
-        "middle": hand_landmarks[12],
-        "ring":   hand_landmarks[16],
-        "pinky":  hand_landmarks[20],
+        FINGERS.INDEX:  hand_landmarks[8],
+        FINGERS.MIDDLE: hand_landmarks[12],
+        FINGERS.RING:   hand_landmarks[16],
+        FINGERS.PINKY:  hand_landmarks[20],
     }
     
     for finger_name, finger_tip in fingers.items():
@@ -65,59 +85,73 @@ def get_pinch(hand_landmarks):
         dist = (dx**2 + dy**2) ** 0.5
         
         if dist < PINCH_THRESHOLD:
-            return finger_name  # "index", "middle", "ring", or "pinky"
+            return finger_name 
     
     return None  # no pinch detected
     
 # -----------------------------------------------------------------------------------
 # Mode-mode an
 # -----------------------------------------------------------------------------------
-def get_mode_from_left(left_landmarks):
+def get_mode_from_left_hand(left_landmarks):
+    """ Mendapatkan mode dari tangan kiri, return enum MODE"""
     if left_landmarks is None:
-        return "IDLE"
+        return MODE.IDLE
     fingers = get_finger_extended(left_landmarks)
     count = count_fingers(fingers)
 
     if count == 1:
-        return "MOUSE"
+        return MODE.NAVIGATION
     elif count == 2:
-        return "KEY"
+        return MODE.KEY
     elif count == 3:
-        return "PRESENTATION"
+        return MODE.PRESENTATION
     elif count == 4:
-        return "STT"
-    return "IDLE"
+        return MODE.STT
+    return MODE.IDLE
 
-# Handle aksi 
-def handle_mouse_action():
+def handle_navigation_action():
+    """
+        Aksi untuk MODE.NAVIGATION
+        - Pinch telunjuk --> Klik Kiri
+        - Pinch tengah --> Klik kanan
+        - Pinch manis --> Zoom in (ctrl + '+')
+        - Pinch kelingking --> Zoom out (Ctrl + '-')
+    """
     global prev_pinch
     pinch_finger = get_pinch(right_landmarks)
 
-    if(pinch_finger == "index"):
+    if(pinch_finger == FINGERS.INDEX):
         pyautogui.click();
-    elif(pinch_finger == "middle"):
-        pass
+    elif(pinch_finger == FINGERS.MIDDLE):
+        pyautogui.rightClick()
+    elif(pinch_finger == FINGERS.RING):
+        pyautogui.hotkey('ctrl', '+')
+    elif(pinch_finger == FINGERS.PINKY):
+        pyautogui.hotkey('ctrl', '-')
     
     prev_pinch = pinch_finger
 
-
 def handle_action(mode, right_landmarks, left_landmarks, frame_shape):
-    if mode == "IDLE":
+    """ Fungsi utama untuk handle aksi """
+    if mode == MODE.IDLE:
         return
 
     fingers = get_finger_extended(left_landmarks)
     count = count_fingers(fingers)
 
-    if mode == "MOUSE":
+    # TODO: Handle semua action disini
+    if mode == MODE.NAVIGATION:
         if(is_pointing(left_landmarks)):
+            # TODO: Move_mouse from index masih rada kaku (dia juga kyk cmn bisa setengah window aja gk bisa kekanan)
             move_mouse_from_index(left_landmarks, frame_shape)
         elif(right_landmarks is not None):
-            handle_mouse_action()
-    elif mode == "KEY":
+            handle_navigation_action()
+
+    elif mode == MODE.KEY:
         pass  # keyboard shortcuts here
-    elif mode == "PRESENTATION":
+    elif mode == MODE.PRESENTATION:
         pass  # slide navigation here
-    elif mode == "STT":
+    elif mode == MODE.STT:
         pass  # slide navigation here
     
 
@@ -209,12 +243,12 @@ while cap.isOpened():
                 else:
                     right_landmarks = lm
 
-                draw_landmarks(frame, lm)  # add this
+                draw_landmarks(frame, lm)  
 
                 gesture = hand_gestures[0]
                 label = f"{handedness}: {gesture.category_name} ({gesture.score:.2f})"
 
-            mode = get_mode_from_left(left_landmarks)
+            mode = get_mode_from_left_hand(left_landmarks)
             handle_action(mode, right_landmarks, left_landmarks, frame.shape)
             cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
 

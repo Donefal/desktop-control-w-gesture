@@ -18,6 +18,7 @@ pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
 
 def move_mouse_from_index(hand_landmarks, frame_shape):
+    """ Menggerakkan mouse """
     global prev_x, prev_y
 
     tip = hand_landmarks[8]
