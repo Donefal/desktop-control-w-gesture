@@ -1,5 +1,13 @@
 import pyautogui
 import numpy as np
+import speech_recognition as sr
+import threading
+
+from gesture_detection import get_finger_extended
+
+# -----------------------------------------------------------------------------------
+# Moving mouse
+# -----------------------------------------------------------------------------------
 
 # Screen dimensions
 SCREEN_W, SCREEN_H = pyautogui.size()
@@ -41,3 +49,66 @@ def move_mouse_from_index(hand_landmarks, frame_shape):
 
     pyautogui.moveTo(smooth_x, smooth_y)
 
+
+
+prev_finger_x, prev_finger_y = None, None
+SENSITIVITY = 3.0  # increase to move faster, decrease to slow down
+
+def move_mouse_relative(hand_landmarks):
+    global prev_finger_x, prev_finger_y
+
+    tip = hand_landmarks[8]
+
+    if prev_finger_x is None:
+        prev_finger_x, prev_finger_y = tip.x, tip.y
+        return
+
+    dx = (tip.x - prev_finger_x) * SENSITIVITY * SCREEN_W
+    dy = (tip.y - prev_finger_y) * SENSITIVITY * SCREEN_H
+
+    prev_finger_x, prev_finger_y = tip.x, tip.y
+
+    pyautogui.moveRel(dx, dy)
+
+def rel_reset():
+    global prev_finger_x, prev_finger_y
+    prev_finger_x, prev_finger_y = None, None
+
+# -----------------------------------------------------------------------------------
+# STT
+# -----------------------------------------------------------------------------------
+
+recognizer = sr.Recognizer()
+is_recording = False
+stt_thread = None
+
+def record_and_type():
+    global is_recording
+    with sr.Microphone() as source:
+        print("Listening...")
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        try:
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+            text = recognizer.recognize_google(audio)
+            print(f"Recognized: {text}")
+            # Type the result wherever the cursor is focused
+            pyautogui.typewrite(text, interval=0.02)
+        except sr.WaitTimeoutError:
+            print("No speech detected")
+        except sr.UnknownValueError:
+            print("Could not understand audio")
+        except sr.RequestError as e:
+            print(f"API error: {e}")
+        finally:
+            is_recording = False
+
+def handle_stt(right_landmarks):
+    global is_recording, stt_thread
+    fingers = get_finger_extended(right_landmarks)
+
+    # Open palm = start recording
+    if all(fingers) and not is_recording:
+        is_recording = True
+        # Run in a thread so it doesn't freeze the camera feed
+        stt_thread = threading.Thread(target=record_and_type, daemon=True)
+        stt_thread.start()
