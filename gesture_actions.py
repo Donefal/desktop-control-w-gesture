@@ -4,6 +4,9 @@ Handles different control modes (navigation, key, presentation, STT).
 """
 
 import pyautogui
+import time
+from enum import StrEnum, auto
+
 from gesture_detection import (
     FINGERS, 
     get_pinch, 
@@ -11,8 +14,33 @@ from gesture_detection import (
     get_finger_extended,
     count_fingers
 )
-
 from control import move_mouse_relative, rel_reset
+
+# -----------------------------------------------------------------------------------
+# MODE: NAVIGATION
+# -----------------------------------------------------------------------------------
+
+class NAV_STATE(StrEnum):
+    IDLE = auto()
+    MOVING = auto()
+    PINCHING = auto()
+
+current_nav_state = NAV_STATE.IDLE
+pinch_executed = False  # ensures click fires once per pinch
+last_state_change = time.time()
+STATE_DEBOUNCE = 0.2  # seconds before state can change again
+
+def get_nav_state(right_landmarks):
+    fingers = get_finger_extended(right_landmarks)
+    touching = get_touching_fingers(right_landmarks)
+    pinch = get_pinch(right_landmarks)
+
+    if touching == {FINGERS.INDEX, FINGERS.MIDDLE}:
+        return NAV_STATE.MOVING, None
+    elif pinch is not None:
+        return NAV_STATE.PINCHING, pinch
+    else:
+        return NAV_STATE.IDLE, None
 
 
 def handle_navigation_action(right_landmarks):
@@ -23,31 +51,41 @@ def handle_navigation_action(right_landmarks):
     - Pinch ring --> Zoom in (Ctrl + '+')
     - Pinch pinky --> Zoom out (Ctrl + '-')
     """
-    pinch_finger = get_pinch(right_landmarks)
-    touching_fingers = get_touching_fingers(right_landmarks)
+    global current_nav_state, pinch_executed, last_state_change
 
-    if touching_fingers == {FINGERS.INDEX, FINGERS.MIDDLE}:
-        print("Move mouse")
-        move_mouse_relative(right_landmarks)
-        return
-    else:
-         rel_reset()
+    new_state, pinch_finger = get_nav_state(right_landmarks)
 
-    if pinch_finger == FINGERS.INDEX:
-        print("Left Click")
-        pyautogui.click()
-    elif pinch_finger == FINGERS.MIDDLE:
-        print("Right Click")
-        pyautogui.rightClick()
-    elif pinch_finger == FINGERS.RING:
-        print("Zoom in (ctrl +)")
-        pyautogui.hotkey('ctrl', '+')
-    elif pinch_finger == FINGERS.PINKY:
-        print("Zoom out (ctrl -)")
-        pyautogui.hotkey('ctrl', '-')
+    # Debounce — don't switch state too fast
+    now = time.time()
+    if new_state != current_nav_state:
+        if now - last_state_change < STATE_DEBOUNCE:
+            # Not enough time passed, stay in current state
+            new_state = current_nav_state
+        else:
+            current_nav_state = new_state
+            last_state_change = now
+            pinch_executed = False  # reset on every state change
+
+    # Execute based on committed state
+    if current_nav_state == NAV_STATE.MOVING:
+        rel_reset() if pinch_finger else move_mouse_relative(right_landmarks)
+
+    elif current_nav_state == NAV_STATE.PINCHING and not pinch_executed:
+        if pinch_finger == FINGERS.INDEX:
+            print("Left Click")
+            pyautogui.click()
+        elif pinch_finger == FINGERS.MIDDLE:
+            print("Right Click")
+            pyautogui.rightClick()
+        pinch_executed = True  # fire once per pinch
+
+    elif current_nav_state == NAV_STATE.IDLE:
+        rel_reset()
 
 
-
+# -----------------------------------------------------------------------------------
+# MODE: PRESENTATION
+# -----------------------------------------------------------------------------------
 
 def handle_presentation_action(right_landmarks):
     """
