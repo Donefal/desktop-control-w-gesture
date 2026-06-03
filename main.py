@@ -3,6 +3,7 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import numpy as np
+import argparse
 
 from gesture_detection import (
     MODE, FINGERS, 
@@ -108,8 +109,12 @@ options = vision.GestureRecognizerOptions(
     result_callback=process_result
 )
 
+parser = argparse.ArgumentParser(description="Gesture Control")
+parser.add_argument('--camera', type=int, default=0, help="Camera index to use")
+args = parser.parse_args()
+
 recognizer = vision.GestureRecognizer.create_from_options(options)
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(args.camera)
 timestamp = 0
 
 # -----------------------------------------------------------------------------------
@@ -160,6 +165,7 @@ while cap.isOpened():
     cv2.flip(frame, 1)
     # frame = fit_to_screen(frame, SCREEN_W, SCREEN_H)
     cv2.namedWindow("Gesture Recognition", cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty("Gesture Recognition", cv2.WND_PROP_TOPMOST, 1)
     cv2.imshow("Gesture Recognition", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break

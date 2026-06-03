@@ -26,7 +26,10 @@ pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
 
 def move_mouse_from_index(hand_landmarks, frame_shape):
-    """ Menggerakkan mouse """
+    """ 
+        TIDAK TERPAKAI (hanya untuk percobaan)
+        Menggerakkan mouse 
+    """
     global prev_x, prev_y
 
     tip = hand_landmarks[8]
@@ -53,6 +56,7 @@ def move_mouse_from_index(hand_landmarks, frame_shape):
 
 prev_finger_x, prev_finger_y = None, None
 SENSITIVITY = 3.0  # increase to move faster, decrease to slow down
+DEAD_ZONE = 0.012  # ignore movements smaller than this
 
 def move_mouse_relative(hand_landmarks):
     global prev_finger_x, prev_finger_y
@@ -66,6 +70,9 @@ def move_mouse_relative(hand_landmarks):
     dx = (tip.x - prev_finger_x) * SENSITIVITY * SCREEN_W
     dy = (tip.y - prev_finger_y) * SENSITIVITY * SCREEN_H
 
+    if abs(dx) < DEAD_ZONE * SCREEN_W and abs(dy) < DEAD_ZONE * SCREEN_H:
+        return  # too small, ignore
+    
     prev_finger_x, prev_finger_y = tip.x, tip.y
 
     pyautogui.moveRel(dx, dy)
