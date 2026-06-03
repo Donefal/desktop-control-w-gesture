@@ -1,7 +1,9 @@
+import whisper
+import sounddevice as sd
+import threading
+import pyperclip
 import pyautogui
 import numpy as np
-import speech_recognition as sr
-import threading
 
 from gesture_detection import get_finger_extended
 
@@ -85,37 +87,44 @@ def rel_reset():
 # STT
 # -----------------------------------------------------------------------------------
 
-recognizer = sr.Recognizer()
+# Load once at startup — not inside the function
+whisper_model = whisper.load_model("tiny")
+
 is_recording = False
 stt_thread = None
 
 def record_and_type():
     global is_recording
-    with sr.Microphone() as source:
-        print("Listening...")
-        recognizer.adjust_for_ambient_noise(source, duration=0.5)
-        try:
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-            text = recognizer.recognize_google(audio)
-            print(f"Recognized: {text}")
-            # Type the result wherever the cursor is focused
-            pyautogui.typewrite(text, interval=0.02)
-        except sr.WaitTimeoutError:
-            print("No speech detected")
-        except sr.UnknownValueError:
-            print("Could not understand audio")
-        except sr.RequestError as e:
-            print(f"API error: {e}")
-        finally:
-            is_recording = False
+    sample_rate = 16000
+    duration = 5  # seconds to record
+
+    print("Listening...")
+    audio = sd.rec(
+        int(duration * sample_rate),
+        samplerate=sample_rate,
+        channels=1,
+        dtype='float32'
+    )
+    sd.wait()  # blocks until recording is done
+
+    audio_np = audio.flatten()
+    result = whisper_model.transcribe(audio_np, language="id")  # change to "en" for English
+    text = result["text"].strip()
+
+    print(f"Recognized: {text}")
+
+    if text:
+        pyperclip.copy(text)
+        pyautogui.hotkey('ctrl', 'v')
+
+    is_recording = False
 
 def handle_stt(right_landmarks):
     global is_recording, stt_thread
     fingers = get_finger_extended(right_landmarks)
 
-    # Open palm = start recording
+    # Open palm triggers recording
     if all(fingers) and not is_recording:
         is_recording = True
-        # Run in a thread so it doesn't freeze the camera feed
         stt_thread = threading.Thread(target=record_and_type, daemon=True)
         stt_thread.start()
