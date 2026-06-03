@@ -86,6 +86,7 @@ def rel_reset():
 # -----------------------------------------------------------------------------------
 # STT
 # -----------------------------------------------------------------------------------
+print(sd.query_devices())
 
 # Load once at startup — not inside the function
 whisper_model = whisper.load_model("tiny")
@@ -103,11 +104,13 @@ def record_and_type():
         int(duration * sample_rate),
         samplerate=sample_rate,
         channels=1,
-        dtype='float32'
+        dtype='float32',
+        device=1
     )
     sd.wait()  # blocks until recording is done
 
     audio_np = audio.flatten()
+    print(f"Audio max amplitude: {audio_np.max():.4f}")
     result = whisper_model.transcribe(audio_np, language="id")  # change to "en" for English
     text = result["text"].strip()
 
@@ -118,6 +121,7 @@ def record_and_type():
         pyautogui.hotkey('ctrl', 'v')
 
     is_recording = False
+
 
 def handle_stt(right_landmarks):
     global is_recording, stt_thread
