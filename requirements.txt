@@ -5,4 +5,5 @@ pynput
 SpeechRecognition
 pyaudio
 numpy
-ipykernel
+scikit-learn
+pandas
