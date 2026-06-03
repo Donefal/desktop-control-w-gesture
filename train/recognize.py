@@ -46,8 +46,18 @@ with open(output_csv, "w", newline="") as f:
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 result = recognizer.recognize(mp_image)
 
-                if not result.hand_landmarks:
-                    print(f"No hand detected: {img_path}")
+                result = recognizer.recognize(mp_image)
+                print(img_path)
+
+                # Skip if no hand or more than one hand detected
+                if not result.hand_landmarks or len(result.hand_landmarks) > 1:
+                    print(f"Skipping (wrong hand count): {img_path}")
+                    continue
+
+                # Optionally filter by handedness — only keep left hand
+                handedness = result.handedness[0][0].display_name
+                if handedness != "Left":  # MediaPipe's perspective, so unmirrored
+                    print(f"Skipping (wrong hand): {img_path}")
                     continue
 
                 lm = result.hand_landmarks[0]

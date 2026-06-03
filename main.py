@@ -5,6 +5,8 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import argparse
 
+import pickle
+
 from gesture_detection import (
     MODE, FINGERS, 
     is_pointing, get_mode_from_left_hand
@@ -24,6 +26,29 @@ from control import (
 
 SCREEN_W = 1920
 SCREEN_H = 1080
+
+CONFIDENCE_TRESHOLD = 0.7
+
+MODE_MAPPING = {
+    'Menggerakkan_Mouse':   MODE.NAVIGATION,
+    'Shortcut_Paste':       MODE.KEY,
+    'Key_Enter':            MODE.KEY,
+    'Shortcut_Copy':        MODE.KEY,
+    'Key_ESC':              MODE.KEY,
+    'Idle':                 MODE.IDLE,
+    'Key_Backspace':        MODE.IDLE,
+    'Shortcut_Cut':         MODE.KEY,
+    'Panah_Kiri':           MODE.PRESENTATION,
+    'Klik_Kanan':           MODE.NAVIGATION,
+    'Begin_STT':            MODE.STT,
+    'Panah_Kanan':          MODE.PRESENTATION,
+    'Klik_Kiri':            MODE.NAVIGATION,
+    'Zoom_IN':              MODE.IDLE,
+    'Zoom_Out':             MODE.IDLE,
+}
+
+with open("models/gesture_classifier.pkl", "rb") as f:
+    gesture_classifier = pickle.load(f)
 
 # -----------------------------------------------------------------------------------
 # Drawing
@@ -70,13 +95,25 @@ def fit_to_screen(frame, screen_w, screen_h):
 # Action Handler
 # -----------------------------------------------------------------------------------
 
-def handle_action(mode, right_landmarks, left_landmarks, frame_shape):
+def handle_action(mode, right_landmarks, classification):
     """Main action handler based on detected mode"""
+
+    classified_mode = MODE_MAPPING.get(classification[0], MODE.IDLE)
+    classified_confidence = classification[1]
+
+    debug_text = f"Label: {classified_mode}, Confidence: {classified_confidence}"
+    cv2.putText(frame, debug_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     # print_debug(right_landmarks, mode)
     if mode == MODE.IDLE or right_landmarks is None:
         return
 
+    # ONLY ACTIVATE IF THE DATA IS GOOD
+    # if classified_mode == MODE.IDLE and classified_confidence < CONFIDENCE_TRESHOLD:
+    #     return
+    
+    # if mode != classified_mode:
+    #     return
 
     if mode == MODE.NAVIGATION:
         handle_navigation_action(right_landmarks)
@@ -100,6 +137,15 @@ latest_result = None
 def process_result(result, output_image, timestamp_ms):
     global latest_result
     latest_result = result
+    
+def classify_gesture_with_confidence(hand_landmarks):
+    if hand_landmarks is None:
+        return ['IDLE', 1]
+
+    row = np.array([coord for point in hand_landmarks for coord in [point.x, point.y, point.z]]).reshape(1, -1)
+    label = gesture_classifier.predict(row)[0]
+    confidence = gesture_classifier.predict_proba(row).max()
+    return [label, confidence]
 
 base_options = python.BaseOptions(model_asset_path='./models/gesture_recognizer.task')
 options = vision.GestureRecognizerOptions(
@@ -120,6 +166,13 @@ timestamp = 0
 # -----------------------------------------------------------------------------------
 # Main function
 # -----------------------------------------------------------------------------------
+
+# See what classes the model knows
+print("Known classes:", gesture_classifier.classes_)
+
+# See how many trees voted for each class on a test prediction
+print("Number of estimators:", gesture_classifier.n_estimators)
+
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -158,9 +211,14 @@ while cap.isOpened():
                 gesture = hand_gestures[0]
                 label = f"{handedness}: {gesture.category_name} ({gesture.score:.2f})"
 
+            
+            classification = classify_gesture_with_confidence(left_landmarks)
             mode = get_mode_from_left_hand(left_landmarks)
-            handle_action(mode, right_landmarks, left_landmarks, frame.shape)
+            handle_action(mode, right_landmarks, classification)
+            
             cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
+
 
     cv2.flip(frame, 1)
     # frame = fit_to_screen(frame, SCREEN_W, SCREEN_H)
