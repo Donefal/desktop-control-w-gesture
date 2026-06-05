@@ -1,11 +1,12 @@
-import whisper
+import speech_recognition as sr
 import sounddevice as sd
 import threading
 import pyperclip
 import pyautogui
 import numpy as np
+import time 
 
-from gesture_detection import get_finger_extended
+from gesture_detection import get_pinch, FINGERS
 
 # -----------------------------------------------------------------------------------
 # Moving mouse
@@ -88,47 +89,62 @@ def rel_reset():
 # -----------------------------------------------------------------------------------
 print(sd.query_devices())
 
-# Load once at startup — not inside the function
-whisper_model = whisper.load_model("tiny")
-
+recognizer = sr.Recognizer()
+recognizer.energy_threshold = 300
+recognizer.dynamic_energy_threshold = False
 is_recording = False
-stt_thread = None
 
 def record_and_type():
     global is_recording
-    sample_rate = 16000
-    duration = 5  # seconds to record
+    with sr.Microphone(device_index=1) as source:  # your AMD mic index
+        print("Listening...")
+        try:
+            audio = recognizer.listen(source, timeout=3, phrase_time_limit=5)
+            text = recognizer.recognize_google(audio, language="id-ID")  # or "en-US"
+            print(f"Recognized: {text}")
+            if text:
+                pyperclip.copy(text)
+                pyautogui.hotkey('ctrl', 'v')
+        except sr.WaitTimeoutError:
+            print("No speech detected")
+        except sr.UnknownValueError:
+            print("Could not understand")
+        except sr.RequestError as e:
+            print(f"API error: {e}")
+        finally:
+            is_recording = False
 
-    print("Listening...")
-    audio = sd.rec(
-        int(duration * sample_rate),
-        samplerate=sample_rate,
-        channels=1,
-        dtype='float32',
-        device=1
-    )
-    sd.wait()  # blocks until recording is done
+# -----------------------------------------------------------------------------------
+# STT Handler
+# -----------------------------------------------------------------------------------
+STT_STATE_IDLE = "idle"
+STT_STATE_TRIGGERED = "triggered"
 
-    audio_np = audio.flatten()
-    print(f"Audio max amplitude: {audio_np.max():.4f}")
-    result = whisper_model.transcribe(audio_np, language="id")  # change to "en" for English
-    text = result["text"].strip()
-
-    print(f"Recognized: {text}")
-
-    if text:
-        pyperclip.copy(text)
-        pyautogui.hotkey('ctrl', 'v')
-
-    is_recording = False
-
+current_stt_state = STT_STATE_IDLE
+last_stt_state_change = time.time()
+STT_DEBOUNCE = 0.4
 
 def handle_stt(right_landmarks):
-    global is_recording, stt_thread
-    fingers = get_finger_extended(right_landmarks)
+    global is_recording, stt_thread, current_stt_state, last_stt_state_change
 
-    # Open palm triggers recording
-    if all(fingers) and not is_recording:
+    pinching_fingers = get_pinch(right_landmarks)
+    if pinching_fingers == FINGERS.INDEX:
+        new_state = STT_STATE_TRIGGERED
+    else:
+        new_state = STT_STATE_IDLE  # was missing the assignment
+
+
+    now = time.time()
+    if new_state != current_stt_state:
+        if now - last_stt_state_change < STT_DEBOUNCE:
+            new_state = current_stt_state
+        else:
+            current_stt_state = new_state
+            last_stt_state_change = now
+
+    if current_stt_state == STT_STATE_TRIGGERED and not is_recording:
         is_recording = True
         stt_thread = threading.Thread(target=record_and_type, daemon=True)
         stt_thread.start()
+
+        

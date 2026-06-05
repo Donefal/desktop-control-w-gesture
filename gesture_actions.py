@@ -118,6 +118,12 @@ def handle_presentation_action(right_landmarks):
         elif pinch_finger == FINGERS.MIDDLE:
             print("Right Arrow")
             pyautogui.press('right')
+        elif pinch_finger == FINGERS.RING:
+            print("Shift + Ctrl + Left Arrow")
+            pyautogui.hotkey('shift', 'ctrl', 'left')
+        elif pinch_finger == FINGERS.PINKY:
+            print("Shift + Ctrl + Right Arrow")
+            pyautogui.hotkey('shift', 'ctrl', 'right')
         pres_pinch_executed = True
 
 

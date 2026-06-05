@@ -47,8 +47,18 @@ MODE_MAPPING = {
     'Zoom_Out':             MODE.IDLE,
 }
 
-with open("models/gesture_classifier.pkl", "rb") as f:
+MODE_MAPPING_NEW = {
+    'key'       : MODE.KEY,
+    'nav'       : MODE.NAVIGATION,
+    'none'      : MODE.IDLE,
+    'pres'      : MODE.PRESENTATION,
+    'stt'       : MODE.STT
+}
+
+with open("models/gesture_classifier_new.pkl", "rb") as f:
     gesture_classifier = pickle.load(f)
+
+print("Known classes:", gesture_classifier.classes_)
 
 # -----------------------------------------------------------------------------------
 # Drawing
@@ -98,11 +108,8 @@ def fit_to_screen(frame, screen_w, screen_h):
 def handle_action(mode, right_landmarks, classification):
     """Main action handler based on detected mode"""
 
-    classified_mode = MODE_MAPPING.get(classification[0], MODE.IDLE)
+    classified_mode = MODE_MAPPING_NEW.get(classification[0], MODE.IDLE)
     classified_confidence = classification[1]
-
-    debug_text = f"Label: {classified_mode}, Confidence: {classified_confidence}"
-    cv2.putText(frame, debug_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     # print_debug(right_landmarks, mode)
     if mode == MODE.IDLE or right_landmarks is None:
@@ -110,10 +117,10 @@ def handle_action(mode, right_landmarks, classification):
 
     # ONLY ACTIVATE IF THE DATA IS GOOD
     # if classified_mode == MODE.IDLE and classified_confidence < CONFIDENCE_TRESHOLD:
-    #     return
+    #      return
     
     # if mode != classified_mode:
-    #     return
+    #      return
 
     if mode == MODE.NAVIGATION:
         handle_navigation_action(right_landmarks)
@@ -189,34 +196,40 @@ while cap.isOpened():
     recognizer.recognize_async(mp_image, timestamp)
 
     if latest_result:
-        left_landmarks = None
-        right_landmarks = None
+        current_result = latest_result  # snapshot once
+        
+        try:
+            gestures = current_result.gestures
+            handedness_list = current_result.handedness
+            landmarks_list = current_result.hand_landmarks
 
-        current_result = latest_result
-        if current_result and len(current_result.gestures) == len(current_result.handedness):
-            for i, hand_gestures in enumerate(latest_result.gestures):
-                handedness = latest_result.handedness[i][0].display_name
-                lm = latest_result.hand_landmarks[i]
+            # Verify all three lists are consistent
+            if not (len(gestures) == len(handedness_list) == len(landmarks_list)):
+                continue
 
-                # Flip the handedness label to match the mirrored frame
+            left_landmarks = None
+            right_landmarks = None
+
+            for i in range(len(gestures)):
+                handedness = handedness_list[i][0].display_name
                 handedness = "Right" if handedness == "Left" else "Left"
+                lm = landmarks_list[i]
 
                 if handedness == "Left":
                     left_landmarks = lm
                 else:
                     right_landmarks = lm
 
-                draw_landmarks(frame, lm)  
+                draw_landmarks(frame, lm)
 
-                gesture = hand_gestures[0]
-                label = f"{handedness}: {gesture.category_name} ({gesture.score:.2f})"
-
-            
             classification = classify_gesture_with_confidence(left_landmarks)
             mode = get_mode_from_left_hand(left_landmarks)
             handle_action(mode, right_landmarks, classification)
-            
-            cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+            cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
+        except (IndexError, AttributeError):
+            pass  # skip this frame if result is malformed
 
 
 
