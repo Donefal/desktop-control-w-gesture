@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import pickle
 import os
 
-df = pd.read_csv("train/landmarks_new.csv")
+df = pd.read_csv("train/landmarks_two_hand.csv")
 
 print(f"Total rows before cleaning: {len(df)}")
 print(f"NaN rows: {df.isnull().any(axis=1).sum()}")
@@ -61,7 +61,10 @@ plt.show()
 # --- Feature Importance ---
 importances = model.feature_importances_
 axes = ['x', 'y', 'z']
-feature_names = [f"{ax}{i}" for i in range(21) for ax in axes]
+feature_names = (
+    [f"L_{ax}{i}" for i in range(21) for ax in ['x', 'y', 'z']] +
+    [f"R_{ax}{i}" for i in range(21) for ax in ['x', 'y', 'z']]
+)
 
 top_n = 20
 indices = np.argsort(importances)[::-1][:top_n]
@@ -89,3 +92,41 @@ for label in labels:
 with open("models/gesture_classifier_new.pkl", "wb") as f:
     pickle.dump(model, f)
 print("\nModel saved to models/gesture_classifier.pkl")
+
+
+
+
+# --------------------------------------------------------------------------------------------------------------
+# Cross Evaluation
+# --------------------------------------------------------------------------------------------------------------
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
+
+print("\nCross Validation Results:")
+print(f"  Scores per fold: {[f'{s:.2%}' for s in cv_scores]}")
+print(f"  Mean:  {cv_scores.mean():.2%}")
+print(f"  Std:   {cv_scores.std():.2%}")
+
+# Plot
+fig, ax = plt.subplots(figsize=(8, 5))
+
+folds = [f"Fold {i+1}" for i in range(len(cv_scores))]
+bars = ax.bar(folds, cv_scores * 100, color='steelblue', edgecolor='black', width=0.5)
+
+# Mean line
+ax.axhline(cv_scores.mean() * 100, color='red', linestyle='--', linewidth=1.5,
+           label=f"Mean: {cv_scores.mean():.2%}")
+
+# Value labels on bars
+for bar, score in zip(bars, cv_scores):
+    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,
+            f"{score:.2%}", ha='center', va='bottom', fontsize=10)
+
+ax.set_title("5-Fold Cross Validation Accuracy", fontsize=13)
+ax.set_ylabel("Accuracy (%)")
+ax.set_ylim(cv_scores.min() * 100 - 2, 101)
+ax.legend()
+plt.tight_layout()
+plt.savefig("results/cross_validation.png", dpi=150)
+print("Cross validation graph saved to results/cross_validation.png")
+plt.show()

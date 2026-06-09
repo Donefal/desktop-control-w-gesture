@@ -88,6 +88,30 @@ def draw_landmarks(frame, hand_landmarks):
         px, py = int(lm.x * w), int(lm.y * h)
         cv2.circle(frame, (px, py), 5, (0, 0, 255), -1)  # red dot
 
+def draw_fingertip_positions(frame, hand_landmarks, handedness):
+    h, w, _ = frame.shape
+    
+    tips = {
+        "Thumb":  4,
+        "Index":  8,
+        "Middle": 12,
+        "Ring":   16,
+        "Pinky":  20,
+    }
+    
+    for name, idx in tips.items():
+        lm = hand_landmarks[idx]
+        px, py = int(lm.x * w), int(lm.y * h)
+        
+        # Draw dot on fingertip
+        cv2.circle(frame, (px, py), 8, (0, 255, 255), -1)
+        
+        # Print coordinates next to the dot
+        coord_text = f"{name}: ({lm.x:.2f}, {lm.y:.2f})"
+        cv2.putText(frame, coord_text, (px + 10, py),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+        
+
 def fit_to_screen(frame, screen_w, screen_h):
     h, w = frame.shape[:2]
     scale = min(screen_w / w, screen_h / h)
@@ -109,14 +133,13 @@ def handle_action(mode, right_landmarks, classification):
     """Main action handler based on detected mode"""
 
     classified_mode = MODE_MAPPING_NEW.get(classification[0], MODE.IDLE)
-    classified_confidence = classification[1]
 
     # print_debug(right_landmarks, mode)
     if mode == MODE.IDLE or right_landmarks is None:
         return
 
     # ONLY ACTIVATE IF THE DATA IS GOOD
-    # if classified_mode == MODE.IDLE and classified_confidence < CONFIDENCE_TRESHOLD:
+    # if classified_mode == MODE.IDLE:
     #      return
     
     # if mode != classified_mode:
@@ -144,15 +167,34 @@ latest_result = None
 def process_result(result, output_image, timestamp_ms):
     global latest_result
     latest_result = result
-    
-def classify_gesture_with_confidence(hand_landmarks):
-    if hand_landmarks is None:
-        return ['IDLE', 1]
 
-    row = np.array([coord for point in hand_landmarks for coord in [point.x, point.y, point.z]]).reshape(1, -1)
-    label = gesture_classifier.predict(row)[0]
-    confidence = gesture_classifier.predict_proba(row).max()
-    return [label, confidence]
+CONFIDENCE_THRESHOLD = 0.7
+
+def classify_two_hand(left_landmarks, right_landmarks):
+    if left_landmarks is None or right_landmarks is None:
+        return "none", 0.0
+
+    left_row  = [coord for point in left_landmarks  for coord in [point.x, point.y, point.z]]
+    right_row = [coord for point in right_landmarks for coord in [point.x, point.y, point.z]]
+
+    features = np.array(left_row + right_row).reshape(1, -1)
+    label = gesture_classifier.predict(features)[0]
+    confidence = gesture_classifier.predict_proba(features).max()
+
+    return label, confidence
+
+def get_mode_from_both_hands(left_landmarks, right_landmarks):
+    if left_landmarks is None or right_landmarks is None:
+        return "IDLE"
+
+    label, confidence = classify_two_hand(left_landmarks, right_landmarks)
+
+    # print(f"Label: {label} | Confidence: {confidence:.2%}")  # remove after testing
+
+    if confidence < CONFIDENCE_THRESHOLD:
+        return "IDLE"
+
+    return MODE_MAPPING.get(label, "IDLE")
 
 base_options = python.BaseOptions(model_asset_path='./models/gesture_recognizer.task')
 options = vision.GestureRecognizerOptions(
@@ -221,8 +263,9 @@ while cap.isOpened():
                     right_landmarks = lm
 
                 draw_landmarks(frame, lm)
+                # draw_fingertip_positions(frame, lm, handedness)
 
-            classification = classify_gesture_with_confidence(left_landmarks)
+            classification = get_mode_from_both_hands(left_landmarks, right_landmarks)
             mode = get_mode_from_left_hand(left_landmarks)
             handle_action(mode, right_landmarks, classification)
             cv2.putText(frame, f"Mode: {mode}", (10, frame.shape[0] - 20),
