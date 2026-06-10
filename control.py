@@ -89,6 +89,8 @@ def rel_reset():
 # -----------------------------------------------------------------------------------
 print(sd.query_devices())
 
+MIC_INDEX = 1
+
 recognizer = sr.Recognizer()
 recognizer.energy_threshold = 300
 recognizer.dynamic_energy_threshold = False
@@ -96,7 +98,7 @@ is_recording = False
 
 def record_and_type():
     global is_recording
-    with sr.Microphone(device_index=1) as source:  # your AMD mic index
+    with sr.Microphone(device_index=MIC_INDEX) as source:
         print("Listening...")
         try:
             audio = recognizer.listen(source, timeout=3, phrase_time_limit=5)
@@ -123,6 +125,8 @@ STT_STATE_TRIGGERED = "triggered"
 current_stt_state = STT_STATE_IDLE
 last_stt_state_change = time.time()
 STT_DEBOUNCE = 0.4
+
+stt_thread = None
 
 def handle_stt(right_landmarks):
     global is_recording, stt_thread, current_stt_state, last_stt_state_change

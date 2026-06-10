@@ -23,6 +23,8 @@ from control import (
     move_mouse_relative, 
     rel_reset
 )
+import control
+import config_gui
 
 SCREEN_W = 1920
 SCREEN_H = 1080
@@ -55,7 +57,16 @@ MODE_MAPPING_NEW = {
     'stt'       : MODE.STT
 }
 
-with open("models/gesture_classifier_new.pkl", "rb") as f:
+
+import sys
+import os
+
+def get_resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+with open(get_resource_path("models/gesture_classifier_new.pkl"), "rb") as f:
     gesture_classifier = pickle.load(f)
 
 print("Known classes:", gesture_classifier.classes_)
@@ -196,7 +207,10 @@ def get_mode_from_both_hands(left_landmarks, right_landmarks):
 
     return MODE_MAPPING.get(label, "IDLE")
 
-base_options = python.BaseOptions(model_asset_path='./models/gesture_recognizer.task')
+base_options = python.BaseOptions(
+    model_asset_path=get_resource_path("models/gesture_recognizer.task")
+)
+
 options = vision.GestureRecognizerOptions(
     base_options=base_options,
     running_mode=vision.RunningMode.LIVE_STREAM,
@@ -204,12 +218,11 @@ options = vision.GestureRecognizerOptions(
     result_callback=process_result
 )
 
-parser = argparse.ArgumentParser(description="Gesture Control")
-parser.add_argument('--camera', type=int, default=0, help="Camera index to use")
-args = parser.parse_args()
+user_config = config_gui.run_startup_dialog()
+control.MIC_INDEX = user_config['mic_index']
 
 recognizer = vision.GestureRecognizer.create_from_options(options)
-cap = cv2.VideoCapture(args.camera)
+cap = cv2.VideoCapture(user_config['camera_index'])
 timestamp = 0
 
 # -----------------------------------------------------------------------------------
@@ -279,7 +292,8 @@ while cap.isOpened():
     cv2.flip(frame, 1)
     # frame = fit_to_screen(frame, SCREEN_W, SCREEN_H)
     cv2.namedWindow("Gesture Recognition", cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("Gesture Recognition", cv2.WND_PROP_TOPMOST, 1)
+    if user_config.get('always_on_top', True):
+        cv2.setWindowProperty("Gesture Recognition", cv2.WND_PROP_TOPMOST, 1)
     cv2.imshow("Gesture Recognition", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
